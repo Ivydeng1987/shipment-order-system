@@ -273,7 +273,7 @@
 
         let orders = [];
         let customers = [];
-        let usedProcurementOrders = []; // 已经被调用过的采购单号列表，防止重复出库
+        let usedProcurementOrders = []; // 已经被调用过的采购单记录 [{orderNo, usedAt}]，仅用于提示，不再强制拦截
         let APP_PASSWORD = localStorage.getItem('my_app_pwd') || 'admin123';
         let currentOrderNo = null;
         let importCache = null;
@@ -726,17 +726,12 @@
             }
 
             listEl.innerHTML = list.map(o => {
-                let isUsed = usedProcurementOrders.includes(o.orderNo);
+                let usedRecord = usedProcurementOrders.find(u => u.orderNo === o.orderNo);
                 let itemCount = (o.items || []).length;
-                if (isUsed) {
-                    return `<div class="mini-list-item disabled">
-                        <div class="info"><b>${escapeHtml(o.orderNo)}　${escapeHtml(o.supplierShort || o.supplierCompany || '')}</b><span>${formatDate(o.orderDate)} ｜ ${itemCount}条货品</span></div>
-                        <span class="badge badge-used">已出库</span>
-                    </div>`;
-                }
+                let usedBadge = usedRecord ? `<span class="badge badge-used">已出库 ${formatDate(usedRecord.usedAt)}</span>` : '<span>→</span>';
                 return `<div class="mini-list-item" onclick='selectImportOrder(${JSON.stringify(o.orderNo)})'>
                     <div class="info"><b>${escapeHtml(o.orderNo)}　${escapeHtml(o.supplierShort || o.supplierCompany || '')}</b><span>${formatDate(o.orderDate)} ｜ ${itemCount}条货品</span></div>
-                    <span>→</span>
+                    ${usedBadge}
                 </div>`;
             }).join('');
         }
@@ -744,7 +739,11 @@
         function selectImportOrder(orderNo) {
             let order = (importCache || []).find(o => o.orderNo === orderNo);
             if (!order) return;
-            if (usedProcurementOrders.includes(orderNo)) { showToast('该采购单已被调用过，不能重复出库', 'error'); return; }
+            let usedRecord = usedProcurementOrders.find(u => u.orderNo === orderNo);
+            if (usedRecord) {
+                let ok = confirm(`该采购单已于 ${formatDate(usedRecord.usedAt)} 被调用过（已出库），确定要再次导入吗？\n（如果是之前点错误操作导致的，请谨慎确认是否会重复出库）`);
+                if (!ok) return;
+            }
             importSelectedOrder = order;
 
             document.getElementById('importOrderListView').classList.add('hidden');
@@ -782,12 +781,12 @@
             appendItems(toImport);
             fillCustomerFieldsIfEmpty({}); // 采购单不含客户信息，这里不带任何客户字段
 
-            // 标记该采购单为已使用，防止重复出库
-            usedProcurementOrders.push(importSelectedOrder.orderNo);
+            // 记录该采购单被使用过（仅作提示用，不再强制拦截重复调用）
+            usedProcurementOrders.push({ orderNo: importSelectedOrder.orderNo, usedAt: getToday() });
             saveAll();
 
             closeModal('importModal');
-            showToast(`已导入 ${toImport.length} 条货品，采购单 ${importSelectedOrder.orderNo} 已标记为已出库`);
+            showToast(`已导入 ${toImport.length} 条货品`);
         }
 
         // ====== 对账功能 ======
@@ -813,8 +812,8 @@
                 let totalQty = (o.items || []).reduce((s, it) => s + (parseFloat(it.qty) || 0), 0);
                 let itemNames = (o.items || []).map(it => it.name).filter(Boolean).join('、');
                 if (o.reconciled) {
-                    return `<div class="recon-row disabled">
-                        <input type="checkbox" disabled>
+                    return `<div class="recon-row">
+                        <input type="checkbox" class="recon-check" value="${escapeHtml(o.orderNo)}">
                         <span style="flex:1;">${escapeHtml(o.orderNo)}　${formatDate(o.shipDate)}　共${totalQty}件　${escapeHtml(itemNames)}</span>
                         <span class="badge badge-used">已对账 ${formatDate(o.reconciledAt)}</span>
                     </div>`;
@@ -833,8 +832,18 @@
             if (checks.length === 0) { showToast('请至少勾选一个出货单', 'error'); return; }
 
             let selectedOrderNos = Array.from(checks).map(c => c.value);
-            let today = getToday();
 
+            // 检查是否包含已经对账过的订单，有的话提醒一下，避免没注意到重复对账
+            let alreadyReconciled = selectedOrderNos.filter(no => {
+                let o = orders.find(x => x.orderNo === no);
+                return o && o.reconciled;
+            });
+            if (alreadyReconciled.length > 0) {
+                let ok = confirm(`勾选的订单里有 ${alreadyReconciled.length} 张（${alreadyReconciled.join('、')}）之前已经对账过，确定要再次对账吗？`);
+                if (!ok) return;
+            }
+
+            let today = getToday();
             selectedOrderNos.forEach(no => {
                 let idx = orders.findIndex(o => o.orderNo === no);
                 if (idx !== -1) { orders[idx].reconciled = true; orders[idx].reconciledAt = today; }
