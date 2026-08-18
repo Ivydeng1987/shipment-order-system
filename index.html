@@ -225,8 +225,9 @@
 
     <div class="modal-overlay" id="importModal">
         <div class="modal">
-            <h2>📥 从采购单导入货品（每张采购单只能被调用一次）</h2>
+            <h2>📥 从采购单导入货品</h2>
             <div id="importOrderListView">
+                <input type="text" id="importSearchInput" placeholder="🔍 搜索单号/供应商/备注关键词..." oninput="renderImportOrderList()" style="width:100%; padding:8px 12px; border:1px solid #e2e8f0; border-radius:30px; font-size:12px; margin-bottom:10px; outline:none;">
                 <div class="mini-list" id="importOrderList"><div class="mini-list-item">加载中...</div></div>
             </div>
             <div id="importItemsView" class="hidden">
@@ -762,6 +763,7 @@
             document.getElementById('importModal').classList.add('active');
             document.getElementById('importOrderListView').classList.remove('hidden');
             document.getElementById('importItemsView').classList.add('hidden');
+            document.getElementById('importSearchInput').value = '';
 
             let listEl = document.getElementById('importOrderList');
             listEl.innerHTML = '<div class="mini-list-item">正在加载采购单列表...</div>';
@@ -769,11 +771,23 @@
             if (!importCache) {
                 importCache = await fetchProcurementOrders();
             }
+            renderImportOrderList();
+        }
+
+        function renderImportOrderList() {
+            let listEl = document.getElementById('importOrderList');
+            let kw = (document.getElementById('importSearchInput')?.value || '').trim().toLowerCase();
             let list = (importCache || []).filter(o => !o.deleted);
+            if (kw) {
+                list = list.filter(o => {
+                    let hay = `${o.orderNo} ${o.supplierCompany || ''} ${o.supplierShort || ''} ${o.remark || ''}`.toLowerCase();
+                    return hay.includes(kw);
+                });
+            }
             list.sort((a, b) => (b.orderNo || '').localeCompare(a.orderNo || ''));
 
             if (list.length === 0) {
-                listEl.innerHTML = '<div class="mini-list-item">没有找到采购单数据</div>';
+                listEl.innerHTML = `<div class="mini-list-item">${kw ? '没有匹配的采购单' : '没有找到采购单数据'}</div>`;
                 return;
             }
 
@@ -781,8 +795,9 @@
                 let usedRecord = usedProcurementOrders.find(u => u.orderNo === o.orderNo);
                 let itemCount = (o.items || []).length;
                 let usedBadge = usedRecord ? `<span class="badge badge-used">已出库 ${formatDate(usedRecord.usedAt)}</span>` : '<span>→</span>';
+                let remarkLine = o.remark ? `<br><span style="color:#0e4b6e;">📝 ${escapeHtml(o.remark)}</span>` : '';
                 return `<div class="mini-list-item" onclick='selectImportOrder(${JSON.stringify(o.orderNo)})'>
-                    <div class="info"><b>${escapeHtml(o.orderNo)}　${escapeHtml(o.supplierShort || o.supplierCompany || '')}</b><span>${formatDate(o.orderDate)} ｜ ${itemCount}条货品</span></div>
+                    <div class="info"><b>${escapeHtml(o.orderNo)}　${escapeHtml(o.supplierShort || o.supplierCompany || '')}</b><span>${formatDate(o.orderDate)} ｜ ${itemCount}条货品${remarkLine}</span></div>
                     ${usedBadge}
                 </div>`;
             }).join('');
