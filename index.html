@@ -112,6 +112,7 @@
             <h1>🚚 出货单系统 <span>v3.0</span></h1>
             <div class="header-right">
                 <span class="sync-status success" id="syncStatus">⏳ 载入中...</span>
+                <button class="btn btn-primary" id="retrySyncBtn" onclick="retrySync()" style="display:none;">🔄 重试同步</button>
                 <button class="btn btn-outline" onclick="openCustomerModal()">👤 客户资料库</button>
                 <button class="btn btn-outline" onclick="openReconModal()">📑 对账</button>
                 <button class="btn btn-outline" onclick="backupAllData()">💾 备份全部数据</button>
@@ -327,6 +328,9 @@
             return null;
         }
 
+        let hasPendingSync = false;
+        let cloudEverLoaded = false;
+
         async function pushCloudData() {
             try {
                 let payload = { password: APP_PASSWORD, orders, customers, usedProcurementOrders };
@@ -335,10 +339,56 @@
                     headers: { 'Content-Type': 'application/json', 'X-Access-Token': ACCESS_TOKEN },
                     body: JSON.stringify(payload)
                 });
-                if (res.ok) return true;
+                if (res.ok) {
+                    hasPendingSync = false;
+                    document.getElementById('syncStatus').innerText = "✅ 已同步云端";
+                    document.getElementById('syncStatus').className = "sync-status success";
+                    document.getElementById('retrySyncBtn').style.display = 'none';
+                    return true;
+                }
                 console.error("上传失败:", res.status);
+                markSyncFailed();
                 return false;
-            } catch(e) { console.error("上传错误:", e); return false; }
+            } catch(e) {
+                console.error("上传错误:", e);
+                markSyncFailed();
+                return false;
+            }
+        }
+
+        function markSyncFailed() {
+            hasPendingSync = true;
+            document.getElementById('syncStatus').innerText = "⚠️ 云端连接失败(数据已存本地)";
+            document.getElementById('syncStatus').className = "sync-status error";
+            document.getElementById('retrySyncBtn').style.display = 'inline-flex';
+        }
+
+        async function retrySync() {
+            let btn = document.getElementById('retrySyncBtn');
+            btn.disabled = true;
+            btn.innerText = '🔄 正在重试...';
+            let success;
+            if (!cloudEverLoaded) {
+                let cloud = await getCloudData();
+                if (cloud) {
+                    cloudEverLoaded = true;
+                    orders = cloud.orders; customers = cloud.customers; usedProcurementOrders = cloud.usedProcurementOrders;
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({ orders, customers, usedProcurementOrders }));
+                    if (cloud.password) { APP_PASSWORD = cloud.password; localStorage.setItem('my_app_pwd', APP_PASSWORD); }
+                    document.getElementById('syncStatus').innerText = "✅ 已同步云端";
+                    document.getElementById('syncStatus').className = "sync-status success";
+                    document.getElementById('retrySyncBtn').style.display = 'none';
+                    renderList();
+                    success = true;
+                } else {
+                    success = false;
+                }
+            } else {
+                success = await pushCloudData();
+            }
+            btn.disabled = false;
+            btn.innerText = '🔄 重试同步';
+            showToast(success ? '同步成功！' : '还是没连上，请稍后再试', success ? 'success' : 'error');
         }
 
         // ====== 只读拉取采购系统数据（用于导入）======
@@ -357,6 +407,7 @@
         async function preloadCloud() {
             let cloud = await getCloudData();
             if (cloud) {
+                cloudEverLoaded = true;
                 orders = cloud.orders;
                 customers = cloud.customers;
                 usedProcurementOrders = cloud.usedProcurementOrders;
@@ -377,6 +428,7 @@
                     document.getElementById('syncStatus').innerText = "📂 空系统";
                 }
                 document.getElementById('syncStatus').className = "sync-status error";
+                document.getElementById('retrySyncBtn').style.display = 'inline-flex';
             }
             let btn = document.getElementById('unlockBtn');
             btn.disabled = false;
