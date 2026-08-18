@@ -176,7 +176,7 @@
                 <div class="form-group">
                     <label>货品明细</label>
                     <table class="items-table" id="itemsTable">
-                        <thead><tr><th style="width:5%">序号</th><th style="width:35%">品名</th><th style="width:22%">尺寸/规格</th><th style="width:14%">数量</th><th style="width:14%">来源</th><th style="width:5%"></th></tr></thead>
+                        <thead><tr><th style="width:5%">序号</th><th style="width:26%">品名</th><th style="width:16%">尺寸/规格</th><th style="width:10%">数量</th><th style="width:12%">采购单价(内部)</th><th style="width:12%">采购金额(内部)</th><th style="width:14%">来源</th><th style="width:5%"></th></tr></thead>
                         <tbody id="itemsTableBody"></tbody>
                     </table>
                     <button class="btn btn-outline btn-sm" onclick="addItemRow()">➕ 添加一行</button>
@@ -527,7 +527,7 @@
 
         // ====== 货品明细行 ======
         function addItemRow(item) {
-            item = item || { name: '', size: '', qty: '', source: '' };
+            item = item || { name: '', size: '', qty: '', price: '', amount: '', source: '' };
             let tbody = document.getElementById('itemsTableBody');
             let tr = document.createElement('tr');
             let seq = tbody.children.length + 1;
@@ -535,22 +535,38 @@
                 <td class="seq-cell">${seq}</td>
                 <td><input type="text" class="item-name" value="${escapeHtml(item.name)}"></td>
                 <td><input type="text" class="item-size" value="${escapeHtml(item.size)}"></td>
-                <td><input type="text" class="item-qty" value="${escapeHtml(item.qty)}" oninput="updateItemsTotal()"></td>
+                <td><input type="text" class="item-qty" value="${escapeHtml(item.qty)}" oninput="updateItemAmount(this); updateItemsTotal();"></td>
+                <td><input type="text" class="item-price" value="${escapeHtml(item.price)}" oninput="updateItemAmount(this); updateItemsTotal();" style="background:#fff8e6;" title="内部采购单价，不会出现在导出给客户的出货单里，只用于对账"></td>
+                <td><input type="text" class="item-amount" value="${escapeHtml(item.amount)}" readonly style="background:#f8fafc;"></td>
                 <td><span class="src-tag">${escapeHtml(item.source || '')}</span><input type="hidden" class="item-source" value="${escapeHtml(item.source || '')}"></td>
                 <td><button class="del-row" onclick="this.closest('tr').remove(); renumberRows(); updateItemsTotal();">🗑️</button></td>
             `;
             tbody.appendChild(tr);
+            updateItemAmount(tr.querySelector('.item-price'));
             updateItemsTotal();
         }
         function renumberRows() {
             let rows = document.querySelectorAll('#itemsTableBody tr');
             rows.forEach((r, i) => { r.querySelector('.seq-cell').innerText = i + 1; });
         }
+        function updateItemAmount(inputEl) {
+            let row = inputEl.closest('tr');
+            let priceInput = row.querySelector('.item-price');
+            let qtyInput = row.querySelector('.item-qty');
+            let amountInput = row.querySelector('.item-amount');
+            let price = parseFloat(priceInput.value) || 0;
+            let qty = parseFloat(qtyInput.value) || 0;
+            let amount = price * qty;
+            amountInput.value = amount ? amount.toFixed(2) : '';
+        }
         function updateItemsTotal() {
             let rows = document.querySelectorAll('#itemsTableBody tr');
-            let totalQty = 0;
-            rows.forEach(r => { totalQty += parseFloat(r.querySelector('.item-qty').value) || 0; });
-            document.getElementById('itemsTotalDisplay').innerText = `合计数量：${totalQty}`;
+            let totalQty = 0, totalAmount = 0;
+            rows.forEach(r => {
+                totalQty += parseFloat(r.querySelector('.item-qty').value) || 0;
+                totalAmount += parseFloat(r.querySelector('.item-amount').value) || 0;
+            });
+            document.getElementById('itemsTotalDisplay').innerText = `合计数量：${totalQty}　｜　合计采购金额：${totalAmount.toFixed(2)}（内部对账用）`;
         }
         function getItemsFromForm() {
             let rows = document.querySelectorAll('#itemsTableBody tr');
@@ -559,8 +575,10 @@
                 let name = r.querySelector('.item-name').value.trim();
                 let size = r.querySelector('.item-size').value.trim();
                 let qty = r.querySelector('.item-qty').value.trim();
+                let price = r.querySelector('.item-price').value.trim();
+                let amount = r.querySelector('.item-amount').value.trim();
                 let source = r.querySelector('.item-source').value.trim();
-                if (name || size || qty) items.push({ name, size, qty, source });
+                if (name || size || qty) items.push({ name, size, qty, price, amount, source });
             });
             return items;
         }
@@ -820,7 +838,7 @@
             let html = items.map((it, i) => `
                 <div class="import-item-row">
                     <input type="checkbox" class="import-check" data-idx="${i}" checked>
-                    <span>${escapeHtml(it.name)}　${escapeHtml(it.size)}　数量:${escapeHtml(it.qty)}</span>
+                    <span>${escapeHtml(it.name)}　${escapeHtml(it.size)}　数量:${escapeHtml(it.qty)}　单价:${escapeHtml(it.price) || '—'}</span>
                 </div>
             `).join('');
             document.getElementById('importItemsList').innerHTML = html || '<div class="import-item-row">该采购单没有货品明细</div>';
@@ -841,7 +859,7 @@
             checks.forEach(c => {
                 let idx = parseInt(c.dataset.idx);
                 let it = items[idx];
-                if (it) toImport.push({ name: it.name || '', size: it.size || '', qty: it.qty || '', source: sourceLabel });
+                if (it) toImport.push({ name: it.name || '', size: it.size || '', qty: it.qty || '', price: it.price || '', amount: '', source: sourceLabel });
             });
             if (toImport.length === 0) { showToast('请至少选择一条货品', 'error'); return; }
 
@@ -877,17 +895,19 @@
 
             listEl.innerHTML = list.map(o => {
                 let totalQty = (o.items || []).reduce((s, it) => s + (parseFloat(it.qty) || 0), 0);
+                let totalAmount = (o.items || []).reduce((s, it) => s + (parseFloat(it.amount) || 0), 0);
                 let itemNames = (o.items || []).map(it => it.name).filter(Boolean).join('、');
+                let amountNote = totalAmount ? `　金额:${totalAmount.toFixed(2)}` : '';
                 if (o.reconciled) {
                     return `<div class="recon-row">
                         <input type="checkbox" class="recon-check" value="${escapeHtml(o.orderNo)}">
-                        <span style="flex:1;">${escapeHtml(o.orderNo)}　${formatDate(o.shipDate)}　共${totalQty}件　${escapeHtml(itemNames)}</span>
+                        <span style="flex:1;">${escapeHtml(o.orderNo)}　${formatDate(o.shipDate)}　共${totalQty}件${amountNote}　${escapeHtml(itemNames)}</span>
                         <span class="badge badge-used">已对账 ${formatDate(o.reconciledAt)}</span>
                     </div>`;
                 }
                 return `<div class="recon-row">
                     <input type="checkbox" class="recon-check" value="${escapeHtml(o.orderNo)}">
-                    <span style="flex:1;">${escapeHtml(o.orderNo)}　${formatDate(o.shipDate)}　共${totalQty}件　${escapeHtml(itemNames)}</span>
+                    <span style="flex:1;">${escapeHtml(o.orderNo)}　${formatDate(o.shipDate)}　共${totalQty}件${amountNote}　${escapeHtml(itemNames)}</span>
                 </div>`;
             }).join('');
         }
@@ -937,43 +957,47 @@
                 return { v: v == null ? '' : v, t: 's', s };
             }
 
-            let rTitle = addRow([cell('出货对账单', S.titleFont, S.centerAlign), '', '', '', '']);
-            merges.push({ s: { r: rTitle, c: 0 }, e: { r: rTitle, c: 4 } });
+            let rTitle = addRow([cell('出货对账单（内部对账用，含采购金额）', S.titleFont, S.centerAlign), '', '', '', '', '']);
+            merges.push({ s: { r: rTitle, c: 0 }, e: { r: rTitle, c: 5 } });
 
-            let rInfo = addRow([cell(`客户：${customer}　　对账日期：${reconDate}`, S.boldFont, S.leftAlign), '', '', '', '']);
-            merges.push({ s: { r: rInfo, c: 0 }, e: { r: rInfo, c: 4 } });
+            let rInfo = addRow([cell(`客户：${customer}　　对账日期：${reconDate}`, S.boldFont, S.leftAlign), '', '', '', '', '']);
+            merges.push({ s: { r: rInfo, c: 0 }, e: { r: rInfo, c: 5 } });
 
             let rHead = addRow([
                 cell('出货单号', S.headFont, S.centerAlign, S.border, S.blueFill),
                 cell('出货日期', S.headFont, S.centerAlign, S.border, S.blueFill),
                 cell('品名', S.headFont, S.centerAlign, S.border, S.blueFill),
                 cell('数量', S.headFont, S.centerAlign, S.border, S.blueFill),
+                cell('采购金额', S.headFont, S.centerAlign, S.border, S.blueFill),
                 cell('备注', S.headFont, S.centerAlign, S.border, S.blueFill)
             ]);
 
-            let grandTotal = 0;
+            let grandTotalQty = 0, grandTotalAmount = 0;
             selectedOrders.forEach(o => {
                 let itemNames = (o.items || []).map(it => it.name).filter(Boolean).join('、');
                 let totalQty = (o.items || []).reduce((s, it) => s + (parseFloat(it.qty) || 0), 0);
-                grandTotal += totalQty;
+                let totalAmount = (o.items || []).reduce((s, it) => s + (parseFloat(it.amount) || 0), 0);
+                grandTotalQty += totalQty;
+                grandTotalAmount += totalAmount;
                 addRow([
                     cell(o.orderNo, S.normalFont, S.leftAlign, S.border),
                     cell(o.shipDate, S.normalFont, S.centerAlign, S.border),
                     cell(itemNames, S.normalFont, S.leftAlign, S.border),
                     cell(totalQty, S.normalFont, S.centerAlign, S.border),
+                    cell(totalAmount ? totalAmount.toFixed(2) : '', S.normalFont, S.rightAlign, S.border),
                     cell(o.remark, S.normalFont, S.leftAlign, S.border)
                 ]);
             });
 
-            let rTotal = addRow([cell('合计', S.boldFont, S.centerAlign, S.border), '', '', cell(grandTotal, S.boldFont, S.centerAlign, S.border), '']);
+            let rTotal = addRow([cell('合计', S.boldFont, S.centerAlign, S.border), '', '', cell(grandTotalQty, S.boldFont, S.centerAlign, S.border), cell(grandTotalAmount.toFixed(2), S.boldFont, S.rightAlign, S.border), '']);
             merges.push({ s: { r: rTotal, c: 0 }, e: { r: rTotal, c: 2 } });
 
             addRow(['']);
-            addRow([cell('客户确认签字：___________________', S.normalFont, S.leftAlign), '', '', '', '']);
+            addRow([cell('客户确认签字：___________________', S.normalFont, S.leftAlign), '', '', '', '', '']);
 
             let ws = XLSX.utils.aoa_to_sheet(aoa);
             ws['!merges'] = merges;
-            ws['!cols'] = [{ wch: 18 }, { wch: 12 }, { wch: 30 }, { wch: 8 }, { wch: 16 }];
+            ws['!cols'] = [{ wch: 18 }, { wch: 12 }, { wch: 30 }, { wch: 8 }, { wch: 12 }, { wch: 16 }];
 
             let wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, '对账单');
