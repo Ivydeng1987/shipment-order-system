@@ -161,6 +161,7 @@
 
                 <div class="form-group">
                     <label>选择客户（从客户资料库自动填充，也可手动填写）</label>
+                    <input type="text" id="fCustomerSearchInput" placeholder="🔍 输入关键词筛选客户（单位/简称/联系人）" oninput="filterCustomerSelect()" style="margin-bottom:6px;">
                     <select id="fCustomerSelect" onchange="fillCustomerFromSelect()">
                         <option value="">-- 手动填写 / 选择已有客户 --</option>
                     </select>
@@ -208,6 +209,7 @@
     <div class="modal-overlay" id="customerModal">
         <div class="modal">
             <h2>👤 客户资料库</h2>
+            <input type="text" id="custModalSearchInput" placeholder="🔍 搜索客户单位/简称/联系人..." oninput="renderCustomerList()" style="width:100%; padding:8px 12px; border:1px solid #e2e8f0; border-radius:30px; font-size:12px; margin-bottom:10px; outline:none;">
             <div class="mini-list" id="customerList"></div>
             <div class="form-row-3">
                 <div class="form-group"><label>客户单位</label><input type="text" id="newCustCompany"></div>
@@ -529,17 +531,30 @@
 
         // ====== 客户资料库 ======
         function openCustomerModal() {
+            document.getElementById('custModalSearchInput').value = '';
             renderCustomerList();
             document.getElementById('customerModal').classList.add('active');
         }
         function renderCustomerList() {
-            let html = customers.map((c, i) => `
+            let kw = (document.getElementById('custModalSearchInput')?.value || '').trim().toLowerCase();
+            let list = customers;
+            if (kw) {
+                list = customers.filter(c => {
+                    let hay = `${c.company || ''} ${c.shortName || ''} ${c.contact || ''} ${c.phone || ''}`.toLowerCase();
+                    return hay.includes(kw);
+                });
+            }
+            // 删除按钮的下标要对应customers原数组，不能用过滤后list的下标，否则搜索时会删错人
+            let html = list.map((c) => {
+                let realIdx = customers.indexOf(c);
+                return `
                 <div class="mini-list-item">
                     <div class="info"><b>${c.shortName ? escapeHtml(c.shortName) + '　' : ''}${escapeHtml(c.company)}</b><span>${escapeHtml(c.contact) || '—'} ｜ ${escapeHtml(c.phone) || '—'}</span></div>
-                    <button class="btn btn-danger btn-sm" onclick="deleteCustomer(${i})">删除</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteCustomer(${realIdx})">删除</button>
                 </div>
-            `).join('');
-            document.getElementById('customerList').innerHTML = html || '<div class="mini-list-item">暂无客户，请在下方添加</div>';
+            `;
+            }).join('');
+            document.getElementById('customerList').innerHTML = html || `<div class="mini-list-item">${kw ? '没有匹配的客户' : '暂无客户，请在下方添加'}</div>`;
         }
         function addCustomer() {
             let company = document.getElementById('newCustCompany').value.trim();
@@ -565,10 +580,25 @@
             renderCustomerList();
             populateCustomerSelect();
         }
-        function populateCustomerSelect() {
+        // list参数可选：传入时按这个筛选后的列表渲染下拉框（用于客户快速检索），不传则渲染全部
+        function populateCustomerSelect(list) {
+            let sourceList = list || customers;
             let sel = document.getElementById('fCustomerSelect');
+            let prevValue = sel.value;
             sel.innerHTML = '<option value="">-- 手动填写 / 选择已有客户 --</option>' +
-                customers.map(c => `<option value="${c.id}">${escapeHtml(c.shortName ? c.shortName + ' - ' : '')}${escapeHtml(c.company)}</option>`).join('');
+                sourceList.map(c => `<option value="${c.id}">${escapeHtml(c.shortName ? c.shortName + ' - ' : '')}${escapeHtml(c.company)}</option>`).join('');
+            // 筛选后如果之前选中的客户还在筛选结果里，保留选中状态，避免筛选一下就把已选的客户冲掉
+            if (prevValue && sourceList.some(c => c.id === prevValue)) sel.value = prevValue;
+        }
+        // 客户快速检索：按单位/简称/联系人/电话匹配，只影响下拉框显示哪些选项，不影响已选中的客户信息
+        function filterCustomerSelect() {
+            let kw = document.getElementById('fCustomerSearchInput').value.trim().toLowerCase();
+            if (!kw) { populateCustomerSelect(); return; }
+            let filtered = customers.filter(c => {
+                let hay = `${c.company || ''} ${c.shortName || ''} ${c.contact || ''} ${c.phone || ''}`.toLowerCase();
+                return hay.includes(kw);
+            });
+            populateCustomerSelect(filtered);
         }
         function fillCustomerFromSelect() {
             let id = document.getElementById('fCustomerSelect').value;
@@ -672,6 +702,7 @@
         function backToList() { document.getElementById('detailView').classList.add('hidden'); document.getElementById('listView').classList.remove('hidden'); renderList(); }
 
         function openOrderDetail(orderNo) {
+            document.getElementById('fCustomerSearchInput').value = '';
             populateCustomerSelect();
             document.getElementById('listView').classList.add('hidden');
             document.getElementById('detailView').classList.remove('hidden');
