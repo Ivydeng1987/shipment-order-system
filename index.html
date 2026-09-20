@@ -231,7 +231,7 @@
         <div class="modal">
             <h2>📥 从采购单导入货品</h2>
             <div id="importOrderListView">
-                <input type="text" id="importSearchInput" placeholder="🔍 搜索单号/供应商/品名/备注关键词..." oninput="renderImportOrderList()" style="width:100%; padding:8px 12px; border:1px solid #e2e8f0; border-radius:30px; font-size:12px; margin-bottom:10px; outline:none;">
+                <input type="text" id="importSearchInput" placeholder="🔍 搜索单号/供应商/品名/尺寸/备注关键词..." oninput="renderImportOrderList()" style="width:100%; padding:8px 12px; border:1px solid #e2e8f0; border-radius:30px; font-size:12px; margin-bottom:10px; outline:none;">
                 <div class="mini-list" id="importOrderList"><div class="mini-list-item">加载中...</div></div>
             </div>
             <div id="importItemsView" class="hidden">
@@ -886,7 +886,7 @@
             let list = (importCache || []).filter(o => !o.deleted);
             if (kw) {
                 list = list.filter(o => {
-                    let itemNamesHay = (o.items || []).map(it => it.name || '').join(' ');
+                    let itemNamesHay = (o.items || []).map(it => `${it.name || ''} ${it.size || ''}`).join(' ');
                     let hay = `${o.orderNo} ${o.supplierCompany || ''} ${o.supplierShort || ''} ${o.remark || ''} ${itemNamesHay}`.toLowerCase();
                     return hay.includes(kw);
                 });
@@ -905,7 +905,9 @@
                 let usedBadge = usedRecord ? `<span class="badge badge-used">已出库 ${formatDate(usedRecord.usedAt)}</span>` : '<span>→</span>';
                 let remarkLine = o.remark ? `<br><span style="color:#0e4b6e;">📝 ${escapeHtml(o.remark)}</span>` : '';
                 // 直接把货品名称列出来，不用点开每一份采购单才知道里面是什么，最多显示4条，超出的用"等N条"收尾
-                let namePreview = items.map(it => it.name).filter(Boolean);
+                let namePreview = items
+                    .filter(it => it.name || it.size)
+                    .map(it => it.size ? `${it.name || ''} ${it.size}`.trim() : (it.name || ''));
                 let itemNamesLine = namePreview.length
                     ? `<br><span style="color:#64748b;">📦 ${escapeHtml(namePreview.slice(0, 4).join('、'))}${namePreview.length > 4 ? `等${namePreview.length}条` : ''}</span>`
                     : '';
