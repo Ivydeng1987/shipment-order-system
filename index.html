@@ -370,11 +370,8 @@
             document.getElementById('retrySyncBtn').style.display = 'inline-flex';
         }
 
-        async function retrySync() {
-            let btn = document.getElementById('retrySyncBtn');
-            btn.disabled = true;
-            btn.innerText = '🔄 正在重试...';
-            let success;
+        // 真正干活的重连逻辑：手动点"重试同步"和后台自动重试都调这一个函数，逻辑只写一遍，避免以后改一处忘了改另一处
+        async function attemptReconnect() {
             if (!cloudEverLoaded) {
                 let cloud = await getCloudData();
                 if (cloud) {
@@ -386,16 +383,37 @@
                     document.getElementById('syncStatus').className = "sync-status success";
                     document.getElementById('retrySyncBtn').style.display = 'none';
                     renderList();
-                    success = true;
-                } else {
-                    success = false;
+                    return true;
                 }
+                return false;
             } else {
-                success = await pushCloudData();
+                return await pushCloudData();
             }
+        }
+
+        async function retrySync() {
+            let btn = document.getElementById('retrySyncBtn');
+            btn.disabled = true;
+            btn.innerText = '🔄 正在重试...';
+            let success = await attemptReconnect();
             btn.disabled = false;
             btn.innerText = '🔄 重试同步';
             showToast(success ? '同步成功！' : '还是没连上，请稍后再试', success ? 'success' : 'error');
+        }
+
+        // ====== 后台自动重试：每30秒偷偷检查一次，云端连接失败/还没连上过的时候自动重连，
+        // 不用你自己发现"连不上"再手动点按钮——很多时候jsonbin那边其实很快就恢复了，
+        // 只是页面这边卡在"已经判定连不上"的状态里没有主动再试，这个后台循环专门解决这种情况 ======
+        let autoRetryInFlight = false;
+        function startAutoRetry() {
+            setInterval(async () => {
+                if (autoRetryInFlight) return; // 上一次还没跑完，这次先跳过，避免叠加多个请求
+                if (cloudEverLoaded && !hasPendingSync) return; // 一切正常，什么都不用做
+                autoRetryInFlight = true;
+                let success = await attemptReconnect();
+                autoRetryInFlight = false;
+                if (success) showToast('🔄 后台自动重连成功，数据已同步', 'success');
+            }, 30000); // 每30秒一次，频率低到不会给jsonbin添乱，又足够快能在你没注意的时候悄悄补上
         }
 
         // ====== 只读拉取采购系统数据（用于导入）======
@@ -442,6 +460,7 @@
             btn.innerText = "解锁";
         }
         preloadCloud();
+        startAutoRetry();
 
         function saveAll() {
             localStorage.setItem(STORAGE_KEY, JSON.stringify({ orders, customers, usedProcurementOrders }));
