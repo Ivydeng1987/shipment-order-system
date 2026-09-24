@@ -118,6 +118,8 @@
                 <button class="btn btn-outline" onclick="backupAllData()">💾 备份全部数据</button>
                 <button class="btn btn-outline" onclick="document.getElementById('importBackupFile').click()">📥 导入备份数据</button>
                 <input type="file" id="importBackupFile" accept=".json" style="display:none;" onchange="importBackupData(event)">
+                <button class="btn btn-outline" onclick="document.getElementById('importShipmentExcelFile').click()">📊 导入出货单(Excel还原)</button>
+                <input type="file" id="importShipmentExcelFile" accept=".xlsx,.xls" multiple style="display:none;" onchange="importShipmentExcels(event)">
                 <button class="btn btn-outline" onclick="changePassword()">🔑 改密</button>
                 <button class="btn btn-outline" onclick="lockScreen()">🔒 锁定</button>
             </div>
@@ -479,6 +481,109 @@
         }
 
         // 导入之前"备份全部数据"导出的那种JSON文件——不是Excel，是原始数据本身，
+        // ====== 从"📦 导出出货单"生成的Excel细节表格里，把出货单还原回系统（应对"当时没同步上云端，只有导出的Excel"这种情况）======
+        // 这份表本来是给客户看的出货单，没有单价/供应商来源/完款/对账这些内部字段，
+        // 能还原的是：出货编号/日期/客户信息/货品明细(品名/尺寸/数量)/打标/标贴/发货要求/备注
+        function cellText(v) {
+            if (v === undefined || v === null) return '';
+            return String(v).trim();
+        }
+        function extractAfterLabel(text, label) {
+            let idx = text.indexOf(label);
+            if (idx === -1) return null;
+            return text.slice(idx + label.length).trim();
+        }
+
+        function parseShipmentExcelSheet(rows) {
+            let orderNo = null, shipDate = '', customerCompany = '', customerAddress = '', customerContact = '';
+            let headerRowIdx = -1;
+
+            for (let r = 0; r < rows.length; r++) {
+                let row = rows[r] || [];
+                for (let c = 0; c < row.length; c++) {
+                    let text = cellText(row[c]);
+                    if (!text) continue;
+                    if (customerCompany === '' && text.includes('客户单位：')) customerCompany = extractAfterLabel(text, '客户单位：') || '';
+                    if (customerAddress === '' && text.includes('地址：')) customerAddress = extractAfterLabel(text, '地址：') || '';
+                    if (customerContact === '' && text.includes('联系人：')) customerContact = extractAfterLabel(text, '联系人：') || '';
+                    if (orderNo === null && text.includes('出货编号：')) orderNo = extractAfterLabel(text, '出货编号：') || null;
+                    if (shipDate === '' && text.includes('出货日期：')) shipDate = extractAfterLabel(text, '出货日期：') || '';
+                }
+                if (headerRowIdx === -1 && row.some(v => cellText(v) === '序号') && row.some(v => cellText(v) === '品名')) {
+                    headerRowIdx = r;
+                }
+            }
+
+            if (!orderNo || headerRowIdx === -1) return null; // 缺出货编号或者找不到表头，判定这份文件不是有效的出货单导出表
+
+            let items = [];
+            let marking = '', label = '', shipRequirement = '', remark = '';
+            for (let r = headerRowIdx + 1; r < rows.length; r++) {
+                let row = rows[r] || [];
+                let first = cellText(row[0]);
+                if (first === '合计') break;
+                let name = cellText(row[1]);
+                let size = cellText(row[2]);
+                let qty = cellText(row[3]);
+                if (!name && !size && !qty) continue; // 跳过空行
+                if (!items.length) {
+                    // 打标/标贴/发货要求/备注这几列每行都写了一样的值（虽然视觉上是合并单元格），从第一条货品行取就行
+                    marking = cellText(row[4]);
+                    label = cellText(row[5]);
+                    shipRequirement = cellText(row[6]);
+                    remark = cellText(row[7]);
+                }
+                items.push({ name, size, qty, price: '', amount: '', source: '' });
+            }
+            if (items.length === 0) return null;
+
+            return {
+                orderNo,
+                shipDate: shipDate || '',
+                customerCompany,
+                customerShort: '',
+                customerContact,
+                customerPhone: '',
+                customerAddress,
+                items,
+                marking, label, shipRequirement, remark,
+                paid: false // 这份表没有完款信息，还原后默认未完款，记得自己核对改
+            };
+        }
+
+        async function importShipmentExcels(event) {
+            let files = Array.from(event.target.files || []);
+            if (files.length === 0) return;
+
+            let added = 0, skipped = 0, failed = 0;
+            for (let file of files) {
+                try {
+                    let buf = await file.arrayBuffer();
+                    let wb = XLSX.read(buf, { type: 'array', cellDates: false });
+                    let ws = wb.Sheets[wb.SheetNames[0]];
+                    let rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+                    let parsed = parseShipmentExcelSheet(rows);
+                    if (!parsed) { failed++; continue; }
+
+                    if (orders.some(o => o.orderNo === parsed.orderNo)) { skipped++; continue; } // 已经存在的单号不覆盖，避免把云端已有的数据冲掉
+                    orders.push(parsed);
+                    added++;
+                } catch (e) {
+                    console.error('解析出货单Excel失败:', file.name, e);
+                    failed++;
+                }
+            }
+
+            if (added > 0) { saveAll(); renderList(); }
+            event.target.value = '';
+
+            let msg = `还原完成：新增 ${added} 张`;
+            if (skipped > 0) msg += `，跳过 ${skipped} 张（单号已存在）`;
+            if (failed > 0) msg += `，${failed} 个文件解析失败（可能不是这个系统导出的出货单表格）`;
+            if (added > 0) msg += '。提醒：还原的单子没有单价/完款/对账信息，记得逐张核对补充';
+            showToast(msg, added > 0 ? 'success' : 'error');
+        }
+
         // 用来应对"云端一度连不上、单子只存在本地这台设备"的情况：换一台设备/重新打开时，
         // 把之前下载的备份文件导入进来，跟当前数据合并，不会覆盖已经在用的记录。
         async function importBackupData(event) {
