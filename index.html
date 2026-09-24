@@ -128,6 +128,7 @@
         <div id="listView">
             <div class="toolbar">
                 <input type="text" id="searchInput" placeholder="🔍 搜索客户/单号..." oninput="renderList()">
+                <button class="btn btn-outline btn-sm" onclick="renderList(); showToast('列表已刷新');" title="重新渲染当前数据，不重新拉取云端">🔄 刷新列表</button>
                 <label style="display:flex;align-items:center;gap:6px;font-size:12px;"><input type="checkbox" id="showDeletedCheckbox" onchange="renderList()" style="width:auto;"> 显示已删除</label>
                 <div style="flex:1;"></div>
                 <button class="btn btn-primary" onclick="openOrderDetail(null)">➕ 新建出货单</button>
@@ -1160,6 +1161,7 @@
 
             exportReconciliation(customer, selectedOrderNos, today);
             renderReconList();
+            renderList(); // 主列表也一起刷新，不然回到列表页看到的"是否已对账"还是旧的，得关闭弹窗才会变
             showToast(`已完成 ${selectedOrderNos.length} 张出货单的对账并导出`);
         }
 
