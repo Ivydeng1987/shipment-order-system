@@ -1180,47 +1180,67 @@
                 return { v: v == null ? '' : v, t: 's', s };
             }
 
-            let rTitle = addRow([cell('出货对账单（内部对账用，含采购金额）', S.titleFont, S.centerAlign), '', '', '', '', '']);
-            merges.push({ s: { r: rTitle, c: 0 }, e: { r: rTitle, c: 5 } });
+            let rTitle = addRow([cell('出货对账单（内部对账用，含采购金额）', S.titleFont, S.centerAlign), '', '', '', '', '', '', '']);
+            merges.push({ s: { r: rTitle, c: 0 }, e: { r: rTitle, c: 7 } });
 
-            let rInfo = addRow([cell(`客户：${customer}　　对账日期：${reconDate}`, S.boldFont, S.leftAlign), '', '', '', '', '']);
-            merges.push({ s: { r: rInfo, c: 0 }, e: { r: rInfo, c: 5 } });
+            let rInfo = addRow([cell(`客户：${customer}　　对账日期：${reconDate}`, S.boldFont, S.leftAlign), '', '', '', '', '', '', '']);
+            merges.push({ s: { r: rInfo, c: 0 }, e: { r: rInfo, c: 7 } });
 
             let rHead = addRow([
                 cell('出货单号', S.headFont, S.centerAlign, S.border, S.blueFill),
                 cell('出货日期', S.headFont, S.centerAlign, S.border, S.blueFill),
                 cell('品名', S.headFont, S.centerAlign, S.border, S.blueFill),
+                cell('尺寸', S.headFont, S.centerAlign, S.border, S.blueFill),
                 cell('数量', S.headFont, S.centerAlign, S.border, S.blueFill),
+                cell('采购单价', S.headFont, S.centerAlign, S.border, S.blueFill),
                 cell('采购金额', S.headFont, S.centerAlign, S.border, S.blueFill),
                 cell('备注', S.headFont, S.centerAlign, S.border, S.blueFill)
             ]);
 
+            // 每张出货单里的每条货品单独占一行；出货单号/出货日期/备注这三列在同一张单的多条货品之间纵向合并，
+            // 跟"导出出货单"那份表格的打标/标贴列是同一个思路，不用每行都重复看一遍
             let grandTotalQty = 0, grandTotalAmount = 0;
             selectedOrders.forEach(o => {
-                let itemNames = (o.items || []).map(it => it.name).filter(Boolean).join('、');
-                let totalQty = (o.items || []).reduce((s, it) => s + (parseFloat(it.qty) || 0), 0);
-                let totalAmount = (o.items || []).reduce((s, it) => s + (parseFloat(it.amount) || 0), 0);
-                grandTotalQty += totalQty;
-                grandTotalAmount += totalAmount;
-                addRow([
-                    cell(o.orderNo, S.normalFont, S.leftAlign, S.border),
-                    cell(o.shipDate, S.normalFont, S.centerAlign, S.border),
-                    cell(itemNames, S.normalFont, S.leftAlign, S.border),
-                    cell(totalQty, S.normalFont, S.centerAlign, S.border),
-                    cell(totalAmount ? totalAmount.toFixed(2) : '', S.normalFont, S.rightAlign, S.border),
-                    cell(o.remark, S.normalFont, S.leftAlign, S.border)
-                ]);
+                let items = (o.items || []).filter(it => it.name || it.size || it.qty);
+                if (items.length === 0) return;
+                let firstItemRow = aoa.length;
+                items.forEach(it => {
+                    let qty = parseFloat(it.qty) || 0;
+                    let amount = parseFloat(it.amount) || 0;
+                    grandTotalQty += qty;
+                    grandTotalAmount += amount;
+                    addRow([
+                        cell(o.orderNo, S.normalFont, S.leftAlign, S.border),
+                        cell(o.shipDate, S.normalFont, S.centerAlign, S.border),
+                        cell(it.name, S.normalFont, S.leftAlign, S.border),
+                        cell(it.size, S.normalFont, S.centerAlign, S.border),
+                        cell(qty, S.normalFont, S.centerAlign, S.border),
+                        cell(it.price, S.normalFont, S.rightAlign, S.border),
+                        cell(amount ? amount.toFixed(2) : '', S.normalFont, S.rightAlign, S.border),
+                        cell(o.remark, S.normalFont, S.leftAlign, S.border)
+                    ]);
+                });
+                let lastItemRow = aoa.length - 1;
+                if (items.length > 1) {
+                    [0, 1, 7].forEach(col => {
+                        merges.push({ s: { r: firstItemRow, c: col }, e: { r: lastItemRow, c: col } });
+                    });
+                }
             });
 
-            let rTotal = addRow([cell('合计', S.boldFont, S.centerAlign, S.border), '', '', cell(grandTotalQty, S.boldFont, S.centerAlign, S.border), cell(grandTotalAmount.toFixed(2), S.boldFont, S.rightAlign, S.border), '']);
-            merges.push({ s: { r: rTotal, c: 0 }, e: { r: rTotal, c: 2 } });
+            let rTotal = addRow([
+                cell('合计', S.boldFont, S.centerAlign, S.border), '', '', '',
+                cell(grandTotalQty, S.boldFont, S.centerAlign, S.border), '',
+                cell(grandTotalAmount.toFixed(2), S.boldFont, S.rightAlign, S.border), ''
+            ]);
+            merges.push({ s: { r: rTotal, c: 0 }, e: { r: rTotal, c: 3 } });
 
             addRow(['']);
-            addRow([cell('客户确认签字：___________________', S.normalFont, S.leftAlign), '', '', '', '', '']);
+            addRow([cell('客户确认签字：___________________', S.normalFont, S.leftAlign), '', '', '', '', '', '', '']);
 
             let ws = XLSX.utils.aoa_to_sheet(aoa);
             ws['!merges'] = merges;
-            ws['!cols'] = [{ wch: 18 }, { wch: 12 }, { wch: 30 }, { wch: 8 }, { wch: 12 }, { wch: 16 }];
+            ws['!cols'] = [{ wch: 18 }, { wch: 12 }, { wch: 22 }, { wch: 16 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 16 }];
 
             let wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, '对账单');
