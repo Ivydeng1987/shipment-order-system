@@ -260,7 +260,8 @@
             <div class="mini-list" id="reconList" style="max-height:320px;"></div>
             <div style="display:flex; gap:10px; justify-content:flex-end;">
                 <button class="btn btn-outline" onclick="closeModal('reconModal')">关闭</button>
-                <button class="btn btn-primary" onclick="confirmReconciliation()">✅ 确认对账并导出</button>
+                <button class="btn btn-outline" onclick="confirmReconciliation(false)" title="只标记为已对账，不生成Excel（财务用）">✅ 仅对账（不导出）</button>
+                <button class="btn btn-primary" onclick="confirmReconciliation(true)" title="标记已对账，并导出对账单Excel（发给合作伙伴对明细）">📤 对账并导出</button>
             </div>
         </div>
     </div>
@@ -1134,7 +1135,7 @@
             }).join('');
         }
 
-        function confirmReconciliation() {
+        function confirmReconciliation(doExport) {
             let customer = document.getElementById('reconCustomerSelect').value;
             if (!customer) { showToast('请先选择客户', 'error'); return; }
             let checks = document.querySelectorAll('.recon-check:checked');
@@ -1159,10 +1160,10 @@
             });
             saveAll();
 
-            exportReconciliation(customer, selectedOrderNos, today);
+            if (doExport) exportReconciliation(customer, selectedOrderNos, today);
             renderReconList();
             renderList(); // 主列表也一起刷新，不然回到列表页看到的"是否已对账"还是旧的，得关闭弹窗才会变
-            showToast(`已完成 ${selectedOrderNos.length} 张出货单的对账并导出`);
+            showToast(doExport ? `已完成 ${selectedOrderNos.length} 张出货单的对账并导出` : `已完成 ${selectedOrderNos.length} 张出货单的对账（未导出）`);
         }
 
         function exportReconciliation(customer, orderNos, reconDate) {
